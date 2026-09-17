@@ -1,0 +1,16 @@
+.git
+.github
+.env
+**/.env
+**/node_modules
+**/dist
+**/build
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.vite
+.vscode
+.idea
+data
+*.zip
