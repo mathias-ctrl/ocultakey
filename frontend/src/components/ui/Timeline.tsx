@@ -1,0 +1,3 @@
+import type { ReactNode } from 'react'
+export function Timeline({ children }:{children:ReactNode}){return <div className="relative ml-1 border-l border-ink/15 pl-5">{children}</div>}
+export function TimelineItem({ title, meta, children }:{title:string;meta?:string;children?:ReactNode}){return <div className="relative pb-6 last:pb-0"><span className="absolute -left-[25px] top-1.5 h-2 w-2 rounded-full bg-action ring-4 ring-canvas"/><div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between"><p className="text-sm font-medium">{title}</p>{meta&&<time className="shrink-0 text-xs text-ink/45">{meta}</time>}</div>{children}</div>}
