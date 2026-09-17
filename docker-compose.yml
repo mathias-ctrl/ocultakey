@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ocultakey
+      POSTGRES_USER: ocultakey
+      POSTGRES_PASSWORD: ocultakey-local
+    volumes:
+      - ocultakey_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocultakey -d ocultakey"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: development
+      APP_SECRET: local-development-secret-change-this-32chars
+      PUBLIC_URL: http://localhost:8000
+      DATABASE_URL: postgresql+psycopg://ocultakey:ocultakey-local@db:5432/ocultakey
+      DATABASE_SCHEMA: ocultakey
+      BOOTSTRAP_EMAIL: admin@ocultakey.local
+      BOOTSTRAP_PASSWORD: Troque-Essa-Senha-Agora-2026
+      CORS_ORIGINS: http://localhost:8000
+      SECRET_UNLOCK_MINUTES: 1
+      VAULT_AUTO_LOCK_MINUTES: 10
+      BACKUP_ENABLED: "true"
+      BACKUP_PATH: /data/backups
+    volumes:
+      - ./data/backups:/data/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  ocultakey_db:
