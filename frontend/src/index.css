@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ok-ink: 17 24 39;
+  --ok-action: 37 99 235;
+  --ok-canvas: 244 246 248;
+  --ok-surface: 255 255 255;
+  --ok-sidebar: 17 24 39;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: rgb(var(--ok-ink));
+  background: rgb(var(--ok-canvas));
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+[data-theme="dark"] {
+  --ok-ink: 232 236 241;
+  --ok-action: 76 126 245;
+  --ok-canvas: 20 21 23;
+  --ok-surface: 29 30 33;
+  --ok-sidebar: 14 15 17;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; }
+body { margin: 0; min-width: 320px; background: rgb(var(--ok-canvas)); color: rgb(var(--ok-ink)); transition: background-color .15s ease, color .15s ease; }
+
+html[data-theme="dark"], body[data-theme="dark"] { background: rgb(var(--ok-canvas)); color: rgb(var(--ok-ink)); }
+html[data-theme="light"], body[data-theme="light"] { background: rgb(var(--ok-canvas)); color: rgb(var(--ok-ink)); }
+button, input, textarea, select { font: inherit; }
+button { touch-action: manipulation; }
+::selection { background: rgba(37, 99, 235, .18); }
+
+@layer components {
+  .ui-input { @apply min-h-10 w-full border border-ink/15 bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-action focus:ring-2 focus:ring-action/15 disabled:cursor-not-allowed disabled:bg-ink/[.035] disabled:text-ink/40; border-radius: 7px; }
+  .ui-field { @apply block; }
+  .ui-field-label { @apply mb-1.5 block text-xs font-medium text-ink/65; }
+  .ui-field-hint { @apply mt-1.5 block text-xs leading-5 text-ink/45; }
+  .ui-button { @apply inline-flex min-h-10 items-center justify-center gap-2 border px-3.5 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-action/20 disabled:cursor-not-allowed disabled:opacity-45; border-radius: 7px; }
+  .ui-icon-button { @apply inline-flex h-10 w-10 items-center justify-center text-ink/55 transition hover:bg-ink/[.055] hover:text-ink focus:outline-none focus:ring-2 focus:ring-action/20; border-radius: 7px; }
+  .ui-tab { @apply -mb-px inline-flex min-h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm text-ink/50 transition hover:text-ink; }
+  .ui-tab-active { @apply border-action font-medium text-ink; }
+  .ui-error { @apply border-l-2 border-action bg-action/[.05] px-3 py-2 text-sm text-ink/75; }
+  .ui-section { @apply border border-ink/10 bg-surface; border-radius: 8px; }
+  .ui-section-header { @apply flex items-start justify-between gap-4 border-b border-ink/10 px-4 py-3.5 sm:px-5; }
+  .ui-list-row { @apply flex w-full items-center gap-3 border-b border-ink/[.08] px-4 py-3 text-left transition last:border-b-0 hover:bg-ink/[.035]; }
+  .input { @apply ui-input; }
+  .btn-primary { @apply ui-button border-action bg-action text-white hover:bg-action/90; }
+  .btn-secondary { @apply ui-button border-ink/15 bg-surface text-ink hover:border-ink/30 hover:bg-ink/[.035]; }
+  .panel { @apply ui-section; }
+  .label { @apply mb-1.5 block text-xs font-medium text-ink/60; letter-spacing: 0; text-transform: none; }
+}
+
+.ok-sidebar { background: rgb(var(--ok-sidebar)); color: white; }
+.ok-sidebar .ui-icon-button { color: rgba(255,255,255,.68); }
+.ok-sidebar .ui-icon-button:hover { background: rgba(255,255,255,.08); color: white; }
+.ok-sidebar input { background: rgba(255,255,255,.07); color: white; border-color: rgba(255,255,255,.12); }
+.ok-sidebar input::placeholder { color: rgba(255,255,255,.38); }
+.ok-sidebar input:focus { border-color: rgb(var(--ok-action)); }
+
+.secure-editor { @apply overflow-hidden border border-ink/15 bg-surface; border-radius: 7px; }
+.secure-editor-toolbar { @apply flex h-10 items-center justify-between border-b border-ink/10 bg-ink/[.025] px-3; }
+.secure-editor-textarea { @apply block h-56 w-full resize-none bg-transparent p-4 font-mono text-sm leading-6 text-ink outline-none placeholder:text-ink/30; tab-size: 2; }
+.secure-editor-fullscreen { @apply fixed inset-4 z-[110] flex flex-col shadow-2xl sm:inset-8; }
+.secure-editor-fullscreen .secure-editor-textarea { @apply h-full flex-1; }
+.secure-note-view { @apply overflow-hidden border border-ink/10 bg-surface; border-radius: 7px; }
+.secure-note-view-fullscreen { @apply fixed inset-4 z-[110] overflow-auto shadow-2xl sm:inset-8; }
+
+[data-theme="dark"] .shadow-2xl, [data-theme="dark"] .shadow-xl { box-shadow: 0 18px 45px rgba(0,0,0,.45); }
+
+/* Scrollbars do OcultaKey: discretos, consistentes e legíveis nos dois temas. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--ok-ink) / .22) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--ok-ink) / .18);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgb(var(--ok-ink) / .32); background-clip: padding-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+.ok-scrollbar { overscroll-behavior: contain; scrollbar-gutter: stable; }
+.ok-scrollbar::-webkit-scrollbar { width: 9px; height: 9px; }
+.ok-scrollbar::-webkit-scrollbar-thumb { background: rgb(var(--ok-ink) / .22); border: 3px solid transparent; background-clip: padding-box; }
+.ok-sidebar, .ok-sidebar * { scrollbar-color: rgba(255,255,255,.24) transparent; }
+.ok-sidebar *::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border: 3px solid transparent; background-clip: padding-box; }
+
+/* Editor de texto próprio: gutter de linhas, viewport estável e modo fullscreen via portal. */
+.secure-editor-body { display: grid; grid-template-columns: 44px minmax(0, 1fr); min-height: 0; background: rgb(var(--ok-surface)); }
+.secure-editor-gutter { display: flex; flex-direction: column; align-items: flex-end; gap: 0; overflow: hidden; border-right: 1px solid rgb(var(--ok-ink) / .08); background: rgb(var(--ok-ink) / .025); padding: 16px 10px 16px 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 24px; color: rgb(var(--ok-ink) / .28); user-select: none; }
+.secure-editor-textarea { min-height: 144px; height: auto; resize: vertical; overflow: auto; padding: 16px; line-height: 24px; }
+.secure-editor-portal { display: flex; height: 100%; flex-direction: column; border-radius: 8px; box-shadow: 0 24px 70px rgba(0,0,0,.32); }
+.secure-editor-portal .secure-editor-body { flex: 1; min-height: 0; }
+.secure-editor-portal .secure-editor-textarea { height: 100%; resize: none; }
+.secure-editor-portal .secure-editor-gutter { overflow-y: hidden; }
