@@ -1,10 +1,28 @@
+<div align="center">
+
 # OcultaKey
 
-OcultaKey é um gerenciador de credenciais self-hosted para organizar acessos de vários perfis, empresas, projetos ou operações sem deixar os segredos em texto aberto no servidor.
+**Gerenciador de credenciais self-hosted com criptografia no navegador.**
 
-A aplicação protege metadados e segredos no navegador antes do envio para a API. A busca usa blind indexes para evitar armazenar termos pesquisáveis em plaintext no PostgreSQL.
+Organize acessos de clientes, empresas, projetos e ambientes sem manter os segredos em texto aberto no servidor.
 
-> O projeto ainda está em desenvolvimento e não passou por auditoria criptográfica externa. Leia `SECURITY.md` antes de usar em produção ou expor a instalação à internet.
+[![Version](https://img.shields.io/badge/version-0.3.4-2563eb)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-111827)](LICENSE)
+[![Self-hosted](https://img.shields.io/badge/self--hosted-Docker-2496ED)](Dockerfile)
+[![Backend](https://img.shields.io/badge/backend-FastAPI-009688)](backend/)
+[![Frontend](https://img.shields.io/badge/frontend-React%20%2B%20TypeScript-61DAFB)](frontend/)
+
+</div>
+
+> O OcultaKey ainda está em desenvolvimento e não passou por auditoria criptográfica externa. Consulte [`SECURITY.md`](SECURITY.md) antes de usar em produção ou expor uma instalação à internet.
+
+## Sobre o projeto
+
+O OcultaKey nasceu para centralizar credenciais de diferentes operações sem transformar o banco de dados em um repositório de senhas legíveis. Metadados e segredos são protegidos no navegador antes de seguirem para a API, e a busca utiliza blind indexes para permitir localização de registros sem armazenar os termos pesquisáveis em plaintext no PostgreSQL.
+
+A interface foi pensada para quem administra vários clientes, ambientes e integrações no dia a dia. Cada perfil pode reunir logins, API keys, tokens, bancos de dados, acessos SSH, OAuth, webhooks, notas seguras e campos personalizados, mantendo Produção e Homologação organizados no mesmo lugar.
+
+O projeto é open source, self-hosted e pode ser executado com Docker em infraestrutura própria.
 
 ## Interface
 
@@ -20,12 +38,12 @@ A aplicação protege metadados e segredos no navegador antes do envio para a AP
 
 ![Modal para criação de nova credencial](docs/screenshots/new-credential.png)
 
-## Recursos
+## O que já está disponível
 
 - Perfis com nome, tags e descrição.
 - Credenciais de login, API key, token, banco de dados, SSH, OAuth, webhook, nota segura e campos personalizados.
 - Nota segura criptografada com editor próprio.
-- Produção e Homologação como ambientes padronizados.
+- Ambientes padronizados para Produção e Homologação.
 - Busca incremental por blind index.
 - Auditoria com busca, filtros, paginação e timeline por perfil.
 - Lixeira e restauração.
@@ -37,11 +55,28 @@ A aplicação protege metadados e segredos no navegador antes do envio para a AP
 - Interface responsiva para desktop e mobile.
 - Deploy por Docker e EasyPanel.
 
+## Como a segurança funciona
+
+No login normal, o frontend chama `/auth/prelogin`, recebe salt e parâmetros públicos do Argon2id, deriva o material necessário no navegador e envia uma prova de autenticação ao backend em vez da senha original.
+
+Para revelar ou copiar um segredo, o usuário confirma a senha e a chave de leitura permanece disponível apenas pelo período configurado em `SECRET_UNLOCK_MINUTES`.
+
+Principais mecanismos usados pelo projeto:
+
+- Argon2id para derivação de chave;
+- AES-256-GCM para metadados e segredos;
+- HMAC-SHA256 para blind indexes;
+- access token curto e refresh token rotacionável.
+
+Os dados pesquisáveis continuam criptografados. O navegador normaliza o texto, gera prefixos e trigramas e transforma cada termo em HMAC com a Search Key. O PostgreSQL encontra candidatos pelos hashes e o navegador confirma os resultados localmente depois de descriptografar os registros retornados.
+
+O modelo completo, suas limitações e decisões de segurança estão documentados em [`SECURITY.md`](SECURITY.md).
+
 ## Stack
 
 ### Frontend
 
-- React
+- React 18
 - TypeScript
 - Vite
 - Tailwind CSS
@@ -57,34 +92,28 @@ A aplicação protege metadados e segredos no navegador antes do envio para a AP
 - Alembic
 - PostgreSQL
 
-## Segurança
-
-No login normal, o frontend chama `/auth/prelogin`, recebe salt e parâmetros públicos do Argon2id, deriva o material necessário no navegador e envia uma prova de autenticação ao backend, não a senha original.
-
-Para revelar ou copiar um segredo, o usuário confirma a senha e a chave de leitura permanece disponível apenas pelo período configurado em `SECRET_UNLOCK_MINUTES`.
-
-A aplicação usa:
-
-- Argon2id para derivação de chave;
-- AES-256-GCM para metadados e segredos;
-- HMAC-SHA256 para blind indexes;
-- access token curto e refresh token rotacionável.
-
-Leia `SECURITY.md` para limitações e detalhes do modelo.
-
-## Busca criptografada
-
-Os dados pesquisáveis permanecem criptografados. O navegador normaliza o texto, gera prefixos/trigramas e transforma cada termo em HMAC com a Search Key. O PostgreSQL encontra candidatos pelos hashes e o navegador confirma os resultados localmente após descriptografar os registros retornados.
-
-## Backup
+## Backup e exportação
 
 `.oky` é o formato oficial de backup do OcultaKey e usa o magic header `OKY1`. CSV é uma exportação manual em texto legível e deve ser tratado como segredo.
+
+## Rodando localmente
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Depois do build, acesse:
+
+```text
+http://localhost:8000
+```
 
 ## Deploy no EasyPanel
 
 Crie um PostgreSQL e um serviço apontando para o `Dockerfile` da raiz.
 
-Exemplo:
+Exemplo mínimo:
 
 ```env
 APP_ENV=production
@@ -107,16 +136,7 @@ VAULT_AUTO_LOCK_MINUTES=10
 
 No primeiro boot, o container cria o schema configurado, executa as migrations e cria o usuário inicial quando necessário. Depois de confirmar o primeiro login, remova `BOOTSTRAP_PASSWORD` do ambiente e faça um novo deploy.
 
-Consulte `.env.example` para a lista completa de variáveis.
-
-## Desenvolvimento local
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-Acesse `http://localhost:8000`.
+Consulte [`.env.example`](.env.example) para a lista completa de variáveis.
 
 ## Estrutura
 
@@ -132,11 +152,18 @@ Dockerfile
 docker-compose.yml
 ```
 
-## Branches
+## Projeto e contribuição
+
+- [`CHANGELOG.md`](CHANGELOG.md) - histórico das versões.
+- [`ROADMAP.md`](ROADMAP.md) - próximos passos planejados.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) - orientações para contribuir.
+- [`SECURITY.md`](SECURITY.md) - modelo de segurança e limitações conhecidas.
+
+Branches principais:
 
 - `main` - versão estável.
 - `develop` - desenvolvimento e homologação antes de chegar à `main`.
 
 ## Licença
 
-MIT. Consulte `LICENSE`.
+Distribuído sob a licença MIT. Consulte [`LICENSE`](LICENSE).
