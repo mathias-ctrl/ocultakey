@@ -6,11 +6,11 @@
 
 Organize acessos de clientes, empresas, projetos e ambientes sem manter os segredos em texto aberto no servidor.
 
-[![Version](https://img.shields.io/badge/version-v0.3.4-blue.svg)](CHANGELOG.md)
-[![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
-[![Self-hosted](https://img.shields.io/badge/self--hosted-Docker-blue.svg)](Dockerfile)
-[![Backend](https://img.shields.io/badge/backend-FastAPI-teal.svg)](backend/)
-[![Frontend](https://img.shields.io/badge/frontend-React%20%7C%20TypeScript-blue.svg)](frontend/)
+[![Version 0.3.4](https://img.shields.io/badge/Version%200.3.4-blue)](CHANGELOG.md)
+[![MIT](https://img.shields.io/badge/MIT-green)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-blue)](Dockerfile)
+[![FastAPI](https://img.shields.io/badge/FastAPI-green)](backend/)
+[![React + TypeScript](https://img.shields.io/badge/React%20%2B%20TypeScript-blue)](frontend/)
 
 </div>
 
