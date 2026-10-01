@@ -6,6 +6,20 @@ A aplicação protege metadados e segredos no navegador antes do envio para a AP
 
 > O projeto ainda está em desenvolvimento e não passou por auditoria criptográfica externa. Leia `SECURITY.md` antes de usar em produção ou expor a instalação à internet.
 
+## Interface
+
+### Login
+
+![Tela de login do OcultaKey](docs/screenshots/login.png)
+
+### Cofre de credenciais
+
+![Tela principal do OcultaKey](docs/screenshots/vault.png)
+
+### Nova credencial
+
+![Modal para criação de nova credencial](docs/screenshots/new-credential.png)
+
 ## Recursos
 
 - Perfis com nome, tags e descrição.
