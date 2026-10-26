@@ -1,8 +1,13 @@
 let accessToken: string | null = null
+let activeSectorId: string | null = null
 let sessionExpiredHandler: (() => void) | null = null
 
 export function setAccessToken(token: string | null) {
   accessToken = token
+}
+
+export function setActiveSectorId(id: string | null) {
+  activeSectorId = id
 }
 
 export function getAccessToken() {
@@ -16,6 +21,7 @@ export function setSessionExpiredHandler(handler: (() => void) | null) {
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+  if (activeSectorId) headers.set('X-Sector-Id', activeSectorId)
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   let response = await fetch(`/api/v1${path}`, { ...options, headers, credentials: 'include' })
   if (response.status === 401 && accessToken && path !== '/auth/login' && path !== '/auth/refresh') {

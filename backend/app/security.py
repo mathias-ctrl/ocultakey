@@ -19,6 +19,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -165,6 +166,8 @@ async def get_auth_context(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
 
     session.last_seen_at = utcnow()
+    db.commit()
+    db.execute(text("SELECT set_config('app.user_id', :user_id, false), set_config('app.role', :role, false), set_config('app.sector_id', '', false)"), {"user_id": str(user.id), "role": user.role})
     db.commit()
     return AuthContext(user=user, session=session)
 

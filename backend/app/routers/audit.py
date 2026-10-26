@@ -9,11 +9,12 @@ from ..models import AuditEvent, VaultClient, VaultItem
 from ..schemas import AuditClientEvent
 from ..security import AuthContext, get_auth_context
 from ..utils import decode_cursor, encode_cursor
+from ..sector_access import VaultScope, get_vault_scope, scope_clause
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
 def _serialize(row: AuditEvent) -> dict:
-    return {"id":str(row.id),"event":row.event,"object_type":row.object_type,"object_id":str(row.object_id) if row.object_id else None,"created_at":row.created_at,"session_id":str(row.session_id) if row.session_id else None}
+    return {"id":str(row.id),"event":row.event,"object_type":row.object_type,"object_id":str(row.object_id) if row.object_id else None,"created_at":row.created_at,"session_id":str(row.session_id) if row.session_id else None,"actor_id":str(row.user_id)}
 
 def _page(rows, limit:int):
     next_cursor=None
@@ -24,8 +25,8 @@ def _page(rows, limit:int):
     return {"items":[_serialize(r) for r in rows],"next_cursor":next_cursor}
 
 @router.get("")
-def list_audit(limit:int=50,cursor:str|None=None,events:str|None=None,object_type:str|None=None,q:str|None=None,auth:AuthContext=Depends(get_auth_context),db:Session=Depends(get_db)):
-    limit=max(10,min(limit,100));query=select(AuditEvent).where(AuditEvent.user_id==auth.user.id)
+def list_audit(limit:int=50,cursor:str|None=None,events:str|None=None,object_type:str|None=None,q:str|None=None,scope:VaultScope=Depends(get_vault_scope),auth:AuthContext=Depends(get_auth_context),db:Session=Depends(get_db)):
+    limit=max(10,min(limit,100));query=select(AuditEvent).where(AuditEvent.sector_id==scope.sector_id, *([AuditEvent.user_id==auth.user.id] if scope.sector_id is None else []))
     if events:
         values=[x.strip().upper() for x in events.split(',') if x.strip()]
         if values: query=query.where(AuditEvent.event.in_(values))
@@ -40,18 +41,18 @@ def list_audit(limit:int=50,cursor:str|None=None,events:str|None=None,object_typ
     return _page(rows,limit)
 
 @router.get("/client/{client_id}")
-def client_timeline(client_id:UUID,limit:int=50,cursor:str|None=None,auth:AuthContext=Depends(get_auth_context),db:Session=Depends(get_db)):
-    limit=max(10,min(limit,100));client=db.scalar(select(VaultClient).where(VaultClient.id==client_id,VaultClient.user_id==auth.user.id))
+def client_timeline(client_id:UUID,limit:int=50,cursor:str|None=None,scope:VaultScope=Depends(get_vault_scope),auth:AuthContext=Depends(get_auth_context),db:Session=Depends(get_db)):
+    limit=max(10,min(limit,100));client=db.scalar(select(VaultClient).where(VaultClient.id==client_id,scope_clause(VaultClient,scope)))
     if not client: raise HTTPException(status_code=404,detail="Client not found")
-    item_ids=list(db.scalars(select(VaultItem.id).where(VaultItem.user_id==auth.user.id,VaultItem.client_id==client_id)).all())
+    item_ids=list(db.scalars(select(VaultItem.id).where(scope_clause(VaultItem,scope),VaultItem.client_id==client_id)).all())
     conditions=[(AuditEvent.object_type=="client")&(AuditEvent.object_id==client_id)]
     if item_ids: conditions.append((AuditEvent.object_type=="item")&(AuditEvent.object_id.in_(item_ids)))
-    query=select(AuditEvent).where(AuditEvent.user_id==auth.user.id,or_(*conditions))
+    query=select(AuditEvent).where(AuditEvent.sector_id==scope.sector_id,*([AuditEvent.user_id==auth.user.id] if scope.sector_id is None else []),or_(*conditions))
     if cursor:
         created_at,row_id=decode_cursor(cursor);query=query.where(or_(AuditEvent.created_at<created_at,and_(AuditEvent.created_at==created_at,AuditEvent.id<row_id)))
     rows=db.scalars(query.order_by(AuditEvent.created_at.desc(),AuditEvent.id.desc()).limit(limit+1)).all()
     return _page(rows,limit)
 
 @router.post("/event",status_code=204)
-def client_event(payload:AuditClientEvent,auth:AuthContext=Depends(get_auth_context),db:Session=Depends(get_db)):
-    add_audit(db,auth.user.id,auth.session.id,payload.event,payload.object_type,payload.object_id);db.commit()
+def client_event(payload:AuditClientEvent,scope:VaultScope=Depends(get_vault_scope),auth:AuthContext=Depends(get_auth_context),db:Session=Depends(get_db)):
+    add_audit(db,auth.user.id,auth.session.id,payload.event,payload.object_type,payload.object_id,sector_id=scope.sector_id);db.commit()

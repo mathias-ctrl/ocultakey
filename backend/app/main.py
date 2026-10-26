@@ -18,7 +18,7 @@ from .drive import upload_backup
 from .config import get_settings
 from .database import db_session
 from .models import User
-from .routers import audit, auth, backup, clients, health, items, search
+from .routers import audit, auth, backup, clients, health, items, search, sectors
 
 settings = get_settings()
 logger = logging.getLogger("ocultakey")
@@ -70,7 +70,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    if request.url.path.startswith("/api/") and request.method not in {"GET", "POST", "PUT", "DELETE", "OPTIONS"}:
+    if request.url.path.startswith("/api/") and request.method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}:
         return JSONResponse(status_code=405, content={"detail": "Method not allowed"})
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -98,6 +98,7 @@ app.include_router(clients.router, prefix=api_prefix)
 app.include_router(items.router, prefix=api_prefix)
 app.include_router(search.router, prefix=api_prefix)
 app.include_router(audit.router, prefix=api_prefix)
+app.include_router(sectors.router, prefix=api_prefix)
 app.include_router(backup.router, prefix=api_prefix)
 
 static_dir = Path(os.getenv("STATIC_DIR", "/app/static"))

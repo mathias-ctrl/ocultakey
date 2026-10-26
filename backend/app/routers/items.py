@@ -14,11 +14,12 @@ from ..models import IdempotencyRecord, SearchToken, VaultClient, VaultItem, utc
 from ..schemas import CipherBlob, ItemCreate, ItemOut, ItemPage, ItemUpdate
 from ..security import AuthContext, b64d, b64e, get_auth_context
 from ..utils import decode_cursor, encode_cursor
+from ..sector_access import VaultScope, get_vault_scope, scope_clause
 
 router = APIRouter(prefix="/items", tags=["items"])
 
-def _touch_client(db: Session, user_id: UUID, client_id: UUID):
-    parent = db.scalar(select(VaultClient).where(VaultClient.id == client_id, VaultClient.user_id == user_id))
+def _touch_client(db: Session, scope: VaultScope, client_id: UUID):
+    parent = db.scalar(select(VaultClient).where(VaultClient.id == client_id, scope_clause(VaultClient, scope)))
     if parent:
         parent.updated_at = utcnow()
 
@@ -37,6 +38,7 @@ def _store_idempotent(db: Session, user_id: UUID, key: str | None, method: str, 
 def _out(row: VaultItem) -> ItemOut:
     return ItemOut(
         id=row.id,
+        sector_id=row.sector_id,
         client_id=row.client_id,
         metadata=CipherBlob(ciphertext=b64e(row.metadata_ciphertext), nonce=b64e(row.metadata_nonce), crypto_version=row.crypto_version),
         secret=CipherBlob(ciphertext=b64e(row.secret_ciphertext), nonce=b64e(row.secret_nonce), crypto_version=row.crypto_version),
@@ -54,11 +56,12 @@ def list_items(
     cursor: str | None = None,
     deleted: bool = False,
     favorite: bool | None = None,
+    scope: VaultScope = Depends(get_vault_scope),
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
     limit = max(1, min(limit, 100))
-    query = select(VaultItem).where(VaultItem.user_id == auth.user.id)
+    query = select(VaultItem).where(scope_clause(VaultItem, scope))
     query = query.where(VaultItem.deleted_at.is_not(None) if deleted else VaultItem.deleted_at.is_(None))
     if client_id:
         query = query.where(VaultItem.client_id == client_id)
@@ -77,16 +80,18 @@ def list_items(
 
 
 @router.post("", response_model=ItemOut, status_code=201)
-def create_item(payload: ItemCreate, request: Request, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    previous = _existing_idempotent(db, auth.user.id, idempotency_key, "POST", request.url.path)
+def create_item(payload: ItemCreate, request: Request, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    scoped_path = f"{request.url.path}:{scope.sector_id or 'personal'}"
+    previous = _existing_idempotent(db, auth.user.id, idempotency_key, "POST", scoped_path)
     if previous:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=previous.status_code, content=json.loads(previous.response_json))
-    parent = db.scalar(select(VaultClient).where(VaultClient.id == payload.client_id, VaultClient.user_id == auth.user.id, VaultClient.deleted_at.is_(None)))
+    parent = db.scalar(select(VaultClient).where(VaultClient.id == payload.client_id, scope_clause(VaultClient, scope), VaultClient.deleted_at.is_(None)))
     if not parent:
         raise HTTPException(status_code=404, detail="Client not found")
     row = VaultItem(
         user_id=auth.user.id,
+        sector_id=scope.sector_id,
         client_id=payload.client_id,
         metadata_ciphertext=b64d(payload.metadata.ciphertext),
         metadata_nonce=b64d(payload.metadata.nonce),
@@ -97,18 +102,18 @@ def create_item(payload: ItemCreate, request: Request, idempotency_key: str | No
     )
     db.add(row)
     db.flush()
-    db.add_all(SearchToken(user_id=auth.user.id, owner_type="item", owner_id=row.id, token=t) for t in set(payload.search_tokens))
-    _touch_client(db, auth.user.id, row.client_id)
-    add_audit(db, auth.user.id, auth.session.id, "ITEM_CREATED", "item", row.id)
+    db.add_all(SearchToken(user_id=auth.user.id, sector_id=scope.sector_id, owner_type="item", owner_id=row.id, token=t) for t in set(payload.search_tokens))
+    _touch_client(db, scope, row.client_id)
+    add_audit(db, auth.user.id, auth.session.id, "ITEM_CREATED", "item", row.id, sector_id=scope.sector_id)
     result = _out(row).model_dump(mode="json")
-    _store_idempotent(db, auth.user.id, idempotency_key, "POST", request.url.path, 201, result)
+    _store_idempotent(db, auth.user.id, idempotency_key, "POST", scoped_path, 201, result)
     db.commit()
     return _out(row)
 
 
 @router.put("/{item_id}", response_model=ItemOut)
-def update_item(item_id: UUID, payload: ItemUpdate, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, VaultItem.user_id == auth.user.id))
+def update_item(item_id: UUID, payload: ItemUpdate, scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, scope_clause(VaultItem, scope)))
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     row.metadata_ciphertext = b64d(payload.metadata.ciphertext)
@@ -117,44 +122,44 @@ def update_item(item_id: UUID, payload: ItemUpdate, auth: AuthContext = Depends(
     row.secret_nonce = b64d(payload.secret.nonce)
     row.crypto_version = payload.metadata.crypto_version
     row.favorite = payload.favorite
-    db.execute(delete(SearchToken).where(SearchToken.user_id == auth.user.id, SearchToken.owner_type == "item", SearchToken.owner_id == row.id))
-    db.add_all(SearchToken(user_id=auth.user.id, owner_type="item", owner_id=row.id, token=t) for t in set(payload.search_tokens))
-    _touch_client(db, auth.user.id, row.client_id)
-    add_audit(db, auth.user.id, auth.session.id, "ITEM_UPDATED", "item", row.id)
+    db.execute(delete(SearchToken).where(SearchToken.owner_type == "item", SearchToken.owner_id == row.id))
+    db.add_all(SearchToken(user_id=auth.user.id, sector_id=scope.sector_id, owner_type="item", owner_id=row.id, token=t) for t in set(payload.search_tokens))
+    _touch_client(db, scope, row.client_id)
+    add_audit(db, auth.user.id, auth.session.id, "ITEM_UPDATED", "item", row.id, sector_id=scope.sector_id)
     db.commit()
     return _out(row)
 
 
 @router.delete("/{item_id}", status_code=204)
-def trash_item(item_id: UUID, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, VaultItem.user_id == auth.user.id, VaultItem.deleted_at.is_(None)))
+def trash_item(item_id: UUID, scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, scope_clause(VaultItem, scope), VaultItem.deleted_at.is_(None)))
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     row.deleted_at = utcnow()
-    _touch_client(db, auth.user.id, row.client_id)
-    add_audit(db, auth.user.id, auth.session.id, "ITEM_TRASHED", "item", row.id)
+    _touch_client(db, scope, row.client_id)
+    add_audit(db, auth.user.id, auth.session.id, "ITEM_TRASHED", "item", row.id, sector_id=scope.sector_id)
     db.commit()
 
 
 @router.post("/{item_id}/restore", response_model=ItemOut)
-def restore_item(item_id: UUID, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, VaultItem.user_id == auth.user.id, VaultItem.deleted_at.is_not(None)))
+def restore_item(item_id: UUID, scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, scope_clause(VaultItem, scope), VaultItem.deleted_at.is_not(None)))
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     row.deleted_at = None
-    _touch_client(db, auth.user.id, row.client_id)
-    add_audit(db, auth.user.id, auth.session.id, "ITEM_RESTORED", "item", row.id)
+    _touch_client(db, scope, row.client_id)
+    add_audit(db, auth.user.id, auth.session.id, "ITEM_RESTORED", "item", row.id, sector_id=scope.sector_id)
     db.commit()
     return _out(row)
 
 
 @router.patch("/{item_id}/favorite", response_model=ItemOut)
-def set_favorite(item_id: UUID, favorite: bool, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, VaultItem.user_id == auth.user.id, VaultItem.deleted_at.is_(None)))
+def set_favorite(item_id: UUID, favorite: bool, scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    row = db.scalar(select(VaultItem).where(VaultItem.id == item_id, scope_clause(VaultItem, scope), VaultItem.deleted_at.is_(None)))
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     row.favorite = favorite
     _touch_client(db, auth.user.id, row.client_id)
-    add_audit(db, auth.user.id, auth.session.id, "ITEM_UPDATED", "item", row.id)
+    add_audit(db, auth.user.id, auth.session.id, "ITEM_UPDATED", "item", row.id, sector_id=scope.sector_id)
     db.commit()
     return _out(row)

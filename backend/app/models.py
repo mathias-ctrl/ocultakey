@@ -20,6 +20,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     auth_proof_hash: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    display_name: Mapped[str] = mapped_column(String(120), default="")
+    role: Mapped[str] = mapped_column(String(24), default="member")
     bootstrap_created: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -54,6 +56,7 @@ class VaultClient(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sectors.id", ondelete="CASCADE"), nullable=True, index=True)
     metadata_ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
     metadata_nonce: Mapped[bytes] = mapped_column(LargeBinary)
     crypto_version: Mapped[int] = mapped_column(Integer, default=1)
@@ -68,6 +71,7 @@ class VaultItem(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sectors.id", ondelete="CASCADE"), nullable=True, index=True)
     client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vault_clients.id", ondelete="CASCADE"), index=True)
     metadata_ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
     metadata_nonce: Mapped[bytes] = mapped_column(LargeBinary)
@@ -89,6 +93,7 @@ class SearchToken(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sectors.id", ondelete="CASCADE"), nullable=True, index=True)
     owner_type: Mapped[str] = mapped_column(String(16))
     owner_id: Mapped[uuid.UUID] = mapped_column(index=True)
     token: Mapped[str] = mapped_column(String(64), index=True)
@@ -114,6 +119,7 @@ class AuditEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sectors.id", ondelete="CASCADE"), nullable=True, index=True)
     session_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     event: Mapped[str] = mapped_column(String(64), index=True)
     object_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -171,3 +177,28 @@ class OAuthState(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Sector(Base):
+    __tablename__ = "sectors"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120))
+    rotation_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    rotation_marked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rotation_marked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class SectorMembership(Base):
+    __tablename__ = "sector_memberships"
+    __table_args__ = (UniqueConstraint("sector_id", "user_id", name="uq_sector_membership"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    sector_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sectors.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    wrapped_sector_key: Mapped[bytes] = mapped_column(LargeBinary)
+    key_nonce: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

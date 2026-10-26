@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArchiveRestore, Eye, EyeOff, FileClock, KeyRound, LogOut, Plus, Search, Settings, UsersRound, X } from 'lucide-react'
+import { ArchiveRestore, Eye, EyeOff, FileClock, KeyRound, LogOut, Plus, Search, Settings, UsersRound, X, Building2, Shield } from 'lucide-react'
 import { NavLink, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { blindTokensForQuery, decryptJson } from '../lib/crypto'
@@ -12,7 +12,7 @@ import { usePrivacy } from '../lib/privacy'
 async function decryptRows(rows:ClientRow[], key:Uint8Array){return Promise.all(rows.map(async row=>({...row,meta:await decryptJson<ClientMeta>(key,row.metadata)})))}
 
 export function Sidebar({ mobileOpen, onClose, onNewClient }:{mobileOpen:boolean;onClose:()=>void;onNewClient:()=>void}){
-  const {metadataKey,searchKey,logout}=useVault();const{t}=usePreferences();const{hideCredentialNames,toggleCredentialNames}=usePrivacy()
+  const {metadataKey,searchKey,logout,sectors,activeSectorId,switchSector,role}=useVault();const{t}=usePreferences();const{hideCredentialNames,toggleCredentialNames}=usePrivacy()
   const [rows,setRows]=useState<DecryptedClient[]>([]);const [query,setQuery]=useState('');const [loading,setLoading]=useState(true)
   const [params]=useSearchParams();const navigate=useNavigate();const selected=params.get('client')
   const load=async(search='')=>{if(!metadataKey)return;setLoading(true);try{
@@ -29,7 +29,10 @@ export function Sidebar({ mobileOpen, onClose, onNewClient }:{mobileOpen:boolean
       <div className="flex items-center gap-1"><button className="ui-icon-button !h-8 !w-8" onClick={toggleCredentialNames} title={hideCredentialNames?'Mostrar nomes das credenciais':'Ocultar nomes das credenciais'}>{hideCredentialNames?<EyeOff size={16}/>:<Eye size={16}/>}</button><button className="ui-icon-button lg:hidden" onClick={onClose}><X size={18}/></button></div>
     </div>
     <nav className="px-3 py-3 text-sm">
-      <NavItem to="/" icon={<UsersRound size={16}/>}>{t('profiles')}</NavItem>
+      <NavItem to="/" icon={<KeyRound size={16}/>}>Meu cofre</NavItem>
+      {sectors.map(s=><button key={s.id} onClick={()=>{switchSector(s.id);navigate('/');onClose()}} className={`mb-0.5 flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left transition ${activeSectorId===s.id?'bg-white/[.11] font-medium text-white':'text-white/60 hover:bg-white/[.07] hover:text-white'}`}><Building2 size={16}/><span className="truncate">{s.name}</span></button>)}
+      {role==='superadmin'&&<NavItem to="/sectors" icon={<Shield size={16}/>}>Setores e usuários</NavItem>}
+      {activeSectorId&&<button onClick={()=>{switchSector(null);navigate('/');onClose()}} className="mt-1 w-full px-3 py-2 text-left text-xs text-white/50 hover:text-white">Voltar ao meu cofre</button>}
       <NavItem to="/audit" icon={<FileClock size={16}/>}>{t('audit')}</NavItem>
       <NavItem to="/trash" icon={<ArchiveRestore size={16}/>}>{t('trash')}</NavItem>
     </nav>
@@ -45,7 +48,7 @@ export function Sidebar({ mobileOpen, onClose, onNewClient }:{mobileOpen:boolean
       <NavItem to="/settings" icon={<Settings size={16}/>}>{t('settings')}</NavItem>
       <button className="mt-1 flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-white/60 transition hover:bg-white/[.07] hover:text-white" onClick={()=>logout()}><LogOut size={16}/><span>{t('logout')}</span></button>
     </div>
-  </div>,[rows,query,loading,selected,t])
+  </div>,[rows,query,loading,selected,t,sectors,activeSectorId,role])
   return <><aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">{content}</aside>{mobileOpen&&<div className="fixed inset-0 z-[70] bg-black/55 lg:hidden" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><aside className="h-full w-[88vw] max-w-72">{content}</aside></div>}</>
 }
 function NavItem({to,icon,children}:{to:string;icon:React.ReactNode;children:React.ReactNode}){return <NavLink to={to} end={to==='/'} className={({isActive})=>`mb-0.5 flex min-h-10 items-center gap-3 rounded-md px-3 transition ${isActive?'bg-white/[.11] font-medium text-white':'text-white/60 hover:bg-white/[.07] hover:text-white'}`}>{icon}<span>{children}</span></NavLink>}

@@ -13,13 +13,15 @@ from sqlalchemy.orm import Session
 from ..audit import add_audit
 from ..config import get_settings
 from ..database import get_db
-from ..models import Session as DbSession, User, utcnow
-from ..schemas import LoginRequest, LoginResponse, ReauthRequest
+from ..models import SectorMembership, Session as DbSession, User, utcnow
+from ..schemas import LoginRequest, LoginResponse, PasswordChangeRequest, ReauthRequest
 from ..security import (
     AuthContext,
+    b64d,
     create_access_token,
     get_auth_context,
     hash_ip,
+    hash_auth_proof,
     hash_token,
     new_reauth_token,
     new_refresh_token,
@@ -142,10 +144,58 @@ def me(auth: AuthContext = Depends(get_auth_context)):
     return {
         "id": str(auth.user.id),
         "email": auth.user.email,
+        "display_name": auth.user.display_name,
+        "role": auth.user.role,
         "vault": vault_bundle_payload(auth.user.vault_bundle),
         "secret_unlock_minutes": settings.secret_unlock_minutes,
         "vault_auto_lock_minutes": settings.vault_auto_lock_minutes,
     }
+
+
+@router.post("/password")
+def change_password(payload: PasswordChangeRequest, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    if not verify_auth_proof(auth.user.auth_proof_hash, payload.current_auth_proof):
+        raise HTTPException(status_code=403, detail="Current password confirmation failed")
+
+    memberships = db.scalars(select(SectorMembership).where(
+        SectorMembership.user_id == auth.user.id,
+        SectorMembership.revoked_at.is_(None),
+    )).all()
+    active_sector_ids = {membership.sector_id for membership in memberships}
+    envelopes = {entry.sector_id: entry for entry in payload.sectors}
+    if len(envelopes) != len(payload.sectors) or set(envelopes) != active_sector_ids:
+        raise HTTPException(status_code=422, detail="A new encrypted key envelope is required for each active sector")
+
+    bundle = auth.user.vault_bundle
+    new_bundle = payload.vault
+    bundle.kdf_salt = b64d(new_bundle.kdf_salt)
+    bundle.kdf_memory_kib = new_bundle.kdf_memory_kib
+    bundle.kdf_iterations = new_bundle.kdf_iterations
+    bundle.kdf_parallelism = new_bundle.kdf_parallelism
+    bundle.wrapped_metadata_key = b64d(new_bundle.wrapped_metadata_key)
+    bundle.metadata_key_nonce = b64d(new_bundle.metadata_key_nonce)
+    bundle.wrapped_search_key = b64d(new_bundle.wrapped_search_key)
+    bundle.search_key_nonce = b64d(new_bundle.search_key_nonce)
+    bundle.wrapped_secret_key = b64d(new_bundle.wrapped_secret_key)
+    bundle.secret_key_nonce = b64d(new_bundle.secret_key_nonce)
+    bundle.crypto_version = new_bundle.crypto_version
+    auth.user.auth_proof_hash = hash_auth_proof(payload.new_auth_proof)
+
+    for membership in memberships:
+        envelope = envelopes[membership.sector_id]
+        membership.wrapped_sector_key = b64d(envelope.wrapped_sector_key)
+        membership.key_nonce = b64d(envelope.key_nonce)
+
+    for session in db.scalars(select(DbSession).where(
+        DbSession.user_id == auth.user.id,
+        DbSession.id != auth.session.id,
+        DbSession.revoked_at.is_(None),
+    )).all():
+        session.revoked_at = utcnow()
+
+    add_audit(db, auth.user.id, auth.session.id, "PASSWORD_CHANGED", "user", auth.user.id)
+    db.commit()
+    return {"changed": True, "other_sessions_revoked": True}
 
 
 @router.post("/reauth")

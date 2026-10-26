@@ -55,6 +55,49 @@ export async function unwrapVaultKey(kek: Uint8Array, ciphertext: string, nonce:
   return new Uint8Array(plain)
 }
 
+export async function wrapVaultKey(kek: Uint8Array, raw: Uint8Array): Promise<{ciphertext:string;nonce:string}> {
+  const key = await aesKey(kek, ['encrypt'])
+  const nonce = crypto.getRandomValues(new Uint8Array(12))
+  const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM',iv:nonce,additionalData:WRAP_AAD},key,raw)
+  return {ciphertext:bytesToB64(new Uint8Array(ciphertext)),nonce:bytesToB64(nonce)}
+}
+
+export function randomKeyBytes() { return crypto.getRandomValues(new Uint8Array(32)) }
+
+export async function createAccountBundle(password:string) {
+  const params={kdf_salt:bytesToB64(crypto.getRandomValues(new Uint8Array(16))),kdf_memory_kib:65536,kdf_iterations:3,kdf_parallelism:1}
+  const kek=await deriveKek(password,params)
+  const [metadata,search,secret]=[randomKeyBytes(),randomKeyBytes(),randomKeyBytes()]
+  const [wm,ws,wsec]=await Promise.all([wrapVaultKey(kek,metadata),wrapVaultKey(kek,search),wrapVaultKey(kek,secret)])
+  return {kek,auth_proof:await deriveAuthProof(kek),vault:{...params,wrapped_metadata_key:wm.ciphertext,metadata_key_nonce:wm.nonce,wrapped_search_key:ws.ciphertext,search_key_nonce:ws.nonce,wrapped_secret_key:wsec.ciphertext,secret_key_nonce:wsec.nonce,crypto_version:1}}
+}
+
+export async function makeSectorKeyBundle(kek:Uint8Array) {
+  const keys={metadata:randomKeyBytes(),search:randomKeyBytes(),secret:randomKeyBytes()}
+  const serialized=new TextEncoder().encode(JSON.stringify({metadata:bytesToB64(keys.metadata),search:bytesToB64(keys.search),secret:bytesToB64(keys.secret)}))
+  const wrapped=await wrapVaultKey(kek,serialized)
+  serialized.fill(0)
+  return {keys,...wrapped}
+}
+
+export async function wrapSectorKeys(kek:Uint8Array,keys:{metadataKey:Uint8Array;searchKey:Uint8Array;secretRaw:Uint8Array}) {
+  const packed=new TextEncoder().encode(JSON.stringify({metadata:bytesToB64(keys.metadataKey),search:bytesToB64(keys.searchKey),secret:bytesToB64(keys.secretRaw)}))
+  const wrapped=await wrapVaultKey(kek,packed);packed.fill(0);return wrapped
+}
+
+export async function rewrapAccountBundle(oldKek:Uint8Array,newPassword:string,vault:VaultBundle,keys:{metadataKey:Uint8Array;searchKey:Uint8Array}) {
+  const secretRaw=await unwrapVaultKey(oldKek,vault.wrapped_secret_key,vault.secret_key_nonce)
+  const params={kdf_salt:bytesToB64(crypto.getRandomValues(new Uint8Array(16))),kdf_memory_kib:vault.kdf_memory_kib,kdf_iterations:vault.kdf_iterations,kdf_parallelism:vault.kdf_parallelism}
+  const newKek=await deriveKek(newPassword,params)
+  try{
+    const [metadata,search,secret]=await Promise.all([
+      wrapVaultKey(newKek,keys.metadataKey),wrapVaultKey(newKek,keys.searchKey),wrapVaultKey(newKek,secretRaw)
+    ])
+    return {newKek,newAuthProof:await deriveAuthProof(newKek),vault:{...params,wrapped_metadata_key:metadata.ciphertext,metadata_key_nonce:metadata.nonce,wrapped_search_key:search.ciphertext,search_key_nonce:search.nonce,wrapped_secret_key:secret.ciphertext,secret_key_nonce:secret.nonce,crypto_version:vault.crypto_version}}
+  }catch(error){newKek.fill(0);throw error}
+  finally{secretRaw.fill(0)}
+}
+
 export async function deriveAuthProof(kek: Uint8Array): Promise<string> {
   const key = await crypto.subtle.importKey('raw', kek, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const proof = new Uint8Array(await crypto.subtle.sign('HMAC', key, textEncoder.encode('ocultakey-auth-v1')))

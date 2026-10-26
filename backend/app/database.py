@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from sqlalchemy import MetaData, create_engine
+from sqlalchemy import MetaData, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import get_settings
@@ -21,6 +21,12 @@ def get_db():
     try:
         yield db
     finally:
+        try:
+            db.rollback()
+            db.execute(text("SELECT set_config('app.user_id', '', false), set_config('app.role', '', false), set_config('app.sector_id', '', false)"))
+            db.commit()
+        except Exception:
+            db.rollback()
         db.close()
 
 

@@ -8,6 +8,7 @@ import { AuditPage } from './pages/AuditPage'
 import { TrashPage } from './pages/TrashPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AppShell } from './components/AppShell'
+import { SectorsPage } from './pages/SectorsPage'
 
 function RoutedApp(){
   const{authenticated}=useVault()
@@ -17,6 +18,7 @@ function RoutedApp(){
     <Route path="/audit" element={<AuditPage/>}/>
     <Route path="/trash" element={<TrashPage/>}/>
     <Route path="/settings" element={<SettingsPage/>}/>
+    <Route path="/sectors" element={<SectorsPage/>}/>
     <Route path="*" element={<Navigate to="/" replace/>}/>
   </Routes></AppShell></PreferencesProvider>
 }

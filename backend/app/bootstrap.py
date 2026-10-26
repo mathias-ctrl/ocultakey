@@ -24,6 +24,8 @@ def bootstrap_admin() -> None:
             email=settings.bootstrap_email.strip().lower(),
             auth_proof_hash="pending",
             bootstrap_created=True,
+            display_name=settings.bootstrap_email.strip().split("@", 1)[0],
+            role="superadmin",
         )
         db.add(user)
         db.flush()

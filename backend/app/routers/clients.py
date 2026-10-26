@@ -15,6 +15,7 @@ from ..models import IdempotencyRecord, SearchToken, VaultClient, VaultItem, utc
 from ..schemas import CipherBlob, ClientCreate, ClientOut, ClientPage, ClientUpdate
 from ..security import AuthContext, b64d, b64e, consume_reauth_token, get_auth_context
 from ..utils import decode_cursor, encode_cursor
+from ..sector_access import VaultScope, get_vault_scope, scope_clause
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/clients", tags=["clients"])
 def _out(row: VaultClient) -> ClientOut:
     return ClientOut(
         id=row.id,
+        sector_id=row.sector_id,
         metadata=CipherBlob(ciphertext=b64e(row.metadata_ciphertext), nonce=b64e(row.metadata_nonce), crypto_version=row.crypto_version),
         favorite=row.favorite,
         created_at=row.created_at,
@@ -66,11 +68,12 @@ def list_clients(
     cursor: str | None = None,
     deleted: bool = False,
     favorite: bool | None = None,
+    scope: VaultScope = Depends(get_vault_scope),
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
     limit = max(1, min(limit, 100))
-    query = select(VaultClient).where(VaultClient.user_id == auth.user.id)
+    query = select(VaultClient).where(scope_clause(VaultClient, scope))
     query = query.where(VaultClient.deleted_at.is_not(None) if deleted else VaultClient.deleted_at.is_(None))
     if favorite is not None:
         query = query.where(VaultClient.favorite == favorite)
@@ -87,8 +90,8 @@ def list_clients(
 
 
 @router.get("/{client_id}", response_model=ClientOut)
-def get_client(client_id: UUID, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, VaultClient.user_id == auth.user.id))
+def get_client(client_id: UUID, scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, scope_clause(VaultClient, scope)))
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")
     return _out(row)
@@ -99,14 +102,16 @@ def create_client(
     payload: ClientCreate,
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    scope: VaultScope = Depends(get_vault_scope),
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
-    previous = _existing_idempotent(db, auth.user.id, idempotency_key, "POST", request.url.path)
+    scoped_path = f"{request.url.path}:{scope.sector_id or 'personal'}"
+    previous = _existing_idempotent(db, auth.user.id, idempotency_key, "POST", scoped_path)
     if previous:
         return JSONResponse(status_code=previous.status_code, content=json.loads(previous.response_json))
     row = VaultClient(
-        user_id=auth.user.id,
+        **{"user_id": auth.user.id, "sector_id": scope.sector_id},
         metadata_ciphertext=b64d(payload.metadata.ciphertext),
         metadata_nonce=b64d(payload.metadata.nonce),
         crypto_version=payload.metadata.crypto_version,
@@ -114,26 +119,26 @@ def create_client(
     )
     db.add(row)
     db.flush()
-    db.add_all(SearchToken(user_id=auth.user.id, owner_type="client", owner_id=row.id, token=t) for t in set(payload.search_tokens))
-    add_audit(db, auth.user.id, auth.session.id, "CLIENT_CREATED", "client", row.id)
+    db.add_all(SearchToken(user_id=auth.user.id, sector_id=scope.sector_id, owner_type="client", owner_id=row.id, token=t) for t in set(payload.search_tokens))
+    add_audit(db, auth.user.id, auth.session.id, "CLIENT_CREATED", "client", row.id, sector_id=scope.sector_id)
     result = _out(row).model_dump(mode="json")
-    _store_idempotent(db, auth.user.id, idempotency_key, "POST", request.url.path, 201, result)
+    _store_idempotent(db, auth.user.id, idempotency_key, "POST", scoped_path, 201, result)
     db.commit()
     return row and _out(row)
 
 
 @router.put("/{client_id}", response_model=ClientOut)
-def update_client(client_id: UUID, payload: ClientUpdate, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, VaultClient.user_id == auth.user.id))
+def update_client(client_id: UUID, payload: ClientUpdate, scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, scope_clause(VaultClient, scope)))
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")
     row.metadata_ciphertext = b64d(payload.metadata.ciphertext)
     row.metadata_nonce = b64d(payload.metadata.nonce)
     row.crypto_version = payload.metadata.crypto_version
     row.favorite = payload.favorite
-    db.execute(delete(SearchToken).where(SearchToken.user_id == auth.user.id, SearchToken.owner_type == "client", SearchToken.owner_id == row.id))
-    db.add_all(SearchToken(user_id=auth.user.id, owner_type="client", owner_id=row.id, token=t) for t in set(payload.search_tokens))
-    add_audit(db, auth.user.id, auth.session.id, "CLIENT_UPDATED", "client", row.id)
+    db.execute(delete(SearchToken).where(SearchToken.owner_type == "client", SearchToken.owner_id == row.id))
+    db.add_all(SearchToken(user_id=auth.user.id, sector_id=scope.sector_id, owner_type="client", owner_id=row.id, token=t) for t in set(payload.search_tokens))
+    add_audit(db, auth.user.id, auth.session.id, "CLIENT_UPDATED", "client", row.id, sector_id=scope.sector_id)
     db.commit()
     return _out(row)
 
@@ -142,30 +147,31 @@ def update_client(client_id: UUID, payload: ClientUpdate, auth: AuthContext = De
 def trash_client(
     client_id: UUID,
     reauth_token: str | None = Header(default=None, alias="X-Reauth-Token"),
+    scope: VaultScope = Depends(get_vault_scope),
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
     if not reauth_token:
         raise HTTPException(status_code=403, detail="Password confirmation required")
     consume_reauth_token(db, auth, reauth_token, f"delete_client:{client_id}")
-    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, VaultClient.user_id == auth.user.id, VaultClient.deleted_at.is_(None)))
+    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, scope_clause(VaultClient, scope), VaultClient.deleted_at.is_(None)))
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")
     now = utcnow()
     row.deleted_at = now
-    for item in db.scalars(select(VaultItem).where(VaultItem.user_id == auth.user.id, VaultItem.client_id == row.id, VaultItem.deleted_at.is_(None))).all():
+    for item in db.scalars(select(VaultItem).where(scope_clause(VaultItem, scope), VaultItem.client_id == row.id, VaultItem.deleted_at.is_(None))).all():
         item.deleted_at = now
-    add_audit(db, auth.user.id, auth.session.id, "CLIENT_TRASHED", "client", row.id)
+    add_audit(db, auth.user.id, auth.session.id, "CLIENT_TRASHED", "client", row.id, sector_id=scope.sector_id)
     db.commit()
 
 
 @router.post("/{client_id}/restore", response_model=ClientOut)
-def restore_client(client_id: UUID, auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
-    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, VaultClient.user_id == auth.user.id, VaultClient.deleted_at.is_not(None)))
+def restore_client(client_id: UUID, scope: VaultScope = Depends(get_vault_scope), auth: AuthContext = Depends(get_auth_context), db: Session = Depends(get_db)):
+    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, scope_clause(VaultClient, scope), VaultClient.deleted_at.is_not(None)))
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")
     row.deleted_at = None
-    add_audit(db, auth.user.id, auth.session.id, "CLIENT_RESTORED", "client", row.id)
+    add_audit(db, auth.user.id, auth.session.id, "CLIENT_RESTORED", "client", row.id, sector_id=scope.sector_id)
     db.commit()
     return _out(row)
 
@@ -174,16 +180,17 @@ def restore_client(client_id: UUID, auth: AuthContext = Depends(get_auth_context
 def delete_client_permanent(
     client_id: UUID,
     reauth_token: str | None = Header(default=None, alias="X-Reauth-Token"),
+    scope: VaultScope = Depends(get_vault_scope),
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
 ):
     if not reauth_token:
         raise HTTPException(status_code=403, detail="Password confirmation required")
     consume_reauth_token(db, auth, reauth_token, f"delete_client_permanent:{client_id}")
-    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, VaultClient.user_id == auth.user.id, VaultClient.deleted_at.is_not(None)))
+    row = db.scalar(select(VaultClient).where(VaultClient.id == client_id, scope_clause(VaultClient, scope), VaultClient.deleted_at.is_not(None)))
     if not row:
         raise HTTPException(status_code=404, detail="Client not found in trash")
-    db.execute(delete(SearchToken).where(SearchToken.user_id == auth.user.id, SearchToken.owner_id == client_id))
+    db.execute(delete(SearchToken).where(SearchToken.owner_id == client_id))
     db.delete(row)
-    add_audit(db, auth.user.id, auth.session.id, "CLIENT_DELETED", "client", client_id)
+    add_audit(db, auth.user.id, auth.session.id, "CLIENT_DELETED", "client", client_id, sector_id=scope.sector_id)
     db.commit()

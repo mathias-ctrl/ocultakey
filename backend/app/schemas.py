@@ -18,6 +18,12 @@ class ReauthRequest(BaseModel):
     purpose: str = Field(default="sensitive_action", max_length=64)
 
 
+class SectorKeyEnvelope(BaseModel):
+    sector_id: UUID
+    wrapped_sector_key: str = Field(min_length=20, max_length=512)
+    key_nonce: str = Field(min_length=12, max_length=64)
+
+
 class CipherBlob(BaseModel):
     ciphertext: str
     nonce: str
@@ -26,16 +32,23 @@ class CipherBlob(BaseModel):
 
 class VaultBundleOut(BaseModel):
     kdf_salt: str
-    kdf_memory_kib: int
-    kdf_iterations: int
-    kdf_parallelism: int
+    kdf_memory_kib: int = Field(ge=8192, le=262144)
+    kdf_iterations: int = Field(ge=1, le=10)
+    kdf_parallelism: int = Field(ge=1, le=8)
     wrapped_metadata_key: str
     metadata_key_nonce: str
     wrapped_search_key: str
     search_key_nonce: str
     wrapped_secret_key: str
     secret_key_nonce: str
-    crypto_version: int
+    crypto_version: int = Field(ge=1, le=1)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_auth_proof: str = Field(min_length=20, max_length=512)
+    new_auth_proof: str = Field(min_length=20, max_length=512)
+    vault: VaultBundleOut
+    sectors: list[SectorKeyEnvelope] = Field(default_factory=list, max_length=100)
 
 
 class LoginResponse(BaseModel):
@@ -57,6 +70,7 @@ class ClientUpdate(ClientCreate):
 
 class ClientOut(BaseModel):
     id: UUID
+    sector_id: UUID | None = None
     metadata: CipherBlob
     favorite: bool
     created_at: datetime
@@ -86,6 +100,7 @@ class ItemUpdate(BaseModel):
 
 class ItemOut(BaseModel):
     id: UUID
+    sector_id: UUID | None = None
     client_id: UUID
     metadata: CipherBlob
     secret: CipherBlob
@@ -120,3 +135,25 @@ class AuditClientEvent(BaseModel):
 
 class DriveFolderSelection(BaseModel):
     folder_id: str = Field(min_length=1, max_length=255)
+
+
+class SectorCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    wrapped_sector_key: str = Field(min_length=20, max_length=512)
+    key_nonce: str = Field(min_length=12, max_length=64)
+
+
+class SectorMembershipCreate(BaseModel):
+    user_id: UUID
+    wrapped_sector_key: str = Field(min_length=20, max_length=512)
+    key_nonce: str = Field(min_length=12, max_length=64)
+
+
+class SectorMemberCreate(BaseModel):
+    display_name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+    auth_proof: str = Field(min_length=20, max_length=512)
+    vault: VaultBundleOut
+    sector_id: UUID | None = None
+    wrapped_sector_key: str | None = Field(default=None, min_length=20, max_length=512)
+    key_nonce: str | None = Field(default=None, min_length=12, max_length=64)
