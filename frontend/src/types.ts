@@ -61,6 +61,8 @@ export type ItemMeta = {
   tags: string[]
   scopes: string[]
   fields: FieldDefinition[]
+  rotation_interval_days?: number | null
+  rotation_started_at?: string | null
 }
 
 export type ItemSecret = {
